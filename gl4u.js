@@ -14,50 +14,23 @@ function initGL(canvas) {
 	return gl;
 }
 
-function Buffer(type, data) {
-	var self = this;
-	self.id = gl.createBuffer();
-	self.type = type;
-
-	self.bind = function() {
-		gl.bindBuffer(gl.ARRAY_BUFFER, self.id);
-	}
-
-	self.buffer = function(data) {
-		self.bind();
-
-		var tarr = null;
-		if(self.type == gl.FLOAT) {
-			if(data.name == 'Float32Array') {
-				tarr = data;
-			} else {
-				tarr = new Float32Array(data); 
-			}
-		} else if(self.type == gl.INT) {
-			if(data.name == 'Int32Array') {
-				tarr = data;
-			} else {
-				tarr = new Int32Array(data);
-			}
-		}
-		gl.bufferData(gl.ARRAY_BUFFER, tarr, gl.STATIC_DRAW);
-	}
-
-	if(data != undefined) {
-		self.buffer(data);
-	}
-}
-
-function Shader(type, source) {
+function Shader(type, source, name) {
 	var self = this;
 	self.type = type;
+	if(name != undefined) {
+		self.name = name;
+	}
 
 	self.id = gl.createShader(type);
 	gl.shaderSource(self.id, source);
 
 	gl.compileShader(self.id);
-	if(!gl.getShaderParameter(self.id, gl.COMPILE_STATUS)) {	
-		console.error("shader compile error:\n" + gl.getShaderInfoLog(self.id));	
+	if(!gl.getShaderParameter(self.id, gl.COMPILE_STATUS)) {
+		var label = '';
+		if(self.name != undefined) {
+			label = '"' + self.name + '" ';
+		}	
+		console.error(label + "shader compile error:\n" + gl.getShaderInfoLog(self.id));	
 		return;
 	}
 
@@ -107,6 +80,9 @@ function __parseGLType(type) {
 	if(tn == 'imat') {
 		return [gl.INT, td*td, td, td];
 	}
+	if(tn == 'sampler') {
+		return ['sampler', td];
+	}
 	return null;
 }
 
@@ -154,10 +130,23 @@ function Program(shaders) {
 		gl.useProgram(self.id);
 	}
 
+	self.unuse = function() {
+		gl.useProgram(null);
+	}
+
 	self.exec = function(mode, begin, end) {
 		self.use();
 
-		// TODO: load uniforms
+		var texcnt = 0;
+		for(var i in self.uniforms) {
+			var unif = self.uniforms[i];
+			if(unif.type[0] == 'sampler') {
+				gl.activeTexture(gl.TEXTURE0 + texcnt);
+				unif.data.bind();
+				gl.uniform1i(unif.id, 0);
+				texcnt += 1
+			}
+		}
 
 		for(var i in self.attribs) {
 			var attr = self.attribs[i];
@@ -179,5 +168,103 @@ function Program(shaders) {
 			var attr = self.attribs[i];
 			gl.disableVertexAttribArray(attr.id);
 		}
+
+		self.unuse();
+	}
+}
+
+function Buffer(type, data) {
+	var self = this;
+	self.id = gl.createBuffer();
+	self.type = type;
+
+	self.bind = function() {
+		gl.bindBuffer(gl.ARRAY_BUFFER, self.id);
+	}
+
+	self.buffer = function(data) {
+		self.bind();
+
+		var tarr = null;
+		if(self.type == gl.FLOAT) {
+			if(data.name == 'Float32Array') {
+				tarr = data;
+			} else {
+				tarr = new Float32Array(data); 
+			}
+		} else if(self.type == gl.INT) {
+			if(data.name == 'Int32Array') {
+				tarr = data;
+			} else {
+				tarr = new Int32Array(data);
+			}
+		}
+		gl.bufferData(gl.ARRAY_BUFFER, tarr, gl.STATIC_DRAW);
+	}
+
+	if(data != undefined) {
+		self.buffer(data);
+	}
+}
+
+function Texture(fmt) {
+	var self = this;
+
+	self.id = gl.createTexture();
+	self.fmt = fmt;
+
+	self.bind = function() {
+		gl.bindTexture(gl.TEXTURE_2D, self.id);
+	}
+
+	self.unbind = function() {
+		gl.bindTexture(gl.TEXTURE_2D, null);
+	}
+
+	self.bind();
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+	self.unbind();
+	
+	self.load = function(img) {
+		self.bind();
+		gl.texImage2D(gl.TEXTURE_2D, 0, self.fmt, gl.RGBA, gl.UNSIGNED_BYTE, img);
+		self.unbind();
+	}
+
+	self.empty = function(w, h) {
+		self.bind();
+		gl.texImage2D(gl.TEXTURE_2D, 0, self.fmt, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+		self.unbind();
+	}
+}
+
+function Framebuffer(fmt) {
+	var self = this;
+	self.id = gl.createFramebuffer();
+	self.fmt = fmt;
+
+	self.bind = function() {
+		gl.bindFramebuffer(gl.FRAMEBUFFER, self.id);
+	}
+
+	self.unbind = function() {
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	}
+
+	self.attach = function(texture) {
+		if(texture.fmt != self.fmt) {
+			console.error('texture and framebuffer format mismatch');
+		}
+		self.texture = texture;
+		self.bind();
+		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture.id, 0);
+		self.unbind();
+	}
+
+	self.empty = function(w, h) {
+		var texture = new Texture(self.fmt);
+		texture.empty(w, h);
+		self.attach(texture);
 	}
 }
