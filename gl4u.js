@@ -155,7 +155,7 @@ function Program(shaders) {
 
 		for(var i in self.attribs) {
 			var attr = self.attribs[i];
-			if(attr.data.type != attr.type[0]) {
+			if(attr.type[0] != attr.data.type) {
 				console.error('buffer and attrib "' + attr.name + '" type mismatch');
 			}
 			attr.data.bind();
@@ -173,45 +173,38 @@ function Program(shaders) {
 	}
 }
 
-function Buffer(type, data) {
+function __getArrayType(data) {
+	if(data instanceof Uint8Array) {
+		return gl.UNSIGNED_BYTE;
+	} else if(data instanceof Int32Array) {
+		return gl.INT;
+	} else if(data instanceof Float32Array) {
+		return gl.FLOAT;
+	} else {
+		console.error('invalid data type');
+		return null;
+	}
+}
+
+function Buffer() {
 	var self = this;
 	self.id = gl.createBuffer();
-	self.type = type;
 
 	self.bind = function() {
 		gl.bindBuffer(gl.ARRAY_BUFFER, self.id);
 	}
 
 	self.buffer = function(data) {
+		self.type = __getArrayType(data);
 		self.bind();
-
-		var tarr = null;
-		if(self.type == gl.FLOAT) {
-			if(data.name == 'Float32Array') {
-				tarr = data;
-			} else {
-				tarr = new Float32Array(data); 
-			}
-		} else if(self.type == gl.INT) {
-			if(data.name == 'Int32Array') {
-				tarr = data;
-			} else {
-				tarr = new Int32Array(data);
-			}
-		}
-		gl.bufferData(gl.ARRAY_BUFFER, tarr, gl.STATIC_DRAW);
-	}
-
-	if(data != undefined) {
-		self.buffer(data);
+		gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
 	}
 }
 
-function Texture(fmt) {
+function Texture() {
 	var self = this;
 
 	self.id = gl.createTexture();
-	self.fmt = fmt;
 
 	self.bind = function() {
 		gl.bindTexture(gl.TEXTURE_2D, self.id);
@@ -222,27 +215,35 @@ function Texture(fmt) {
 	}
 
 	self.bind();
-	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 	self.unbind();
 	
-	self.load = function(img) {
+	self.image = function(img) {
+		self.type = gl.UNSIGNED_BYTE;
 		self.bind();
-		gl.texImage2D(gl.TEXTURE_2D, 0, self.fmt, gl.RGBA, gl.UNSIGNED_BYTE, img);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, self.type, img);
 		self.unbind();
 	}
 
-	self.empty = function(w, h) {
+	self.array = function(data, w, h) {
+		self.type = __getArrayType(data);
 		self.bind();
-		gl.texImage2D(gl.TEXTURE_2D, 0, self.fmt, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, self.type, data);
+		self.unbind();
+	}
+
+	self.empty = function(type, w, h) {
+		self.type = type;
+		self.bind();
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, self.type, null);
 		self.unbind();
 	}
 }
 
-function Framebuffer(fmt) {
+function Framebuffer() {
 	var self = this;
 	self.id = gl.createFramebuffer();
-	self.fmt = fmt;
 
 	self.bind = function() {
 		gl.bindFramebuffer(gl.FRAMEBUFFER, self.id);
@@ -253,18 +254,16 @@ function Framebuffer(fmt) {
 	}
 
 	self.attach = function(texture) {
-		if(texture.fmt != self.fmt) {
-			console.error('texture and framebuffer format mismatch');
-		}
+		self.type = texture.type;
 		self.texture = texture;
 		self.bind();
 		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture.id, 0);
 		self.unbind();
 	}
 
-	self.empty = function(w, h) {
-		var texture = new Texture(self.fmt);
-		texture.empty(w, h);
+	self.empty = function(type, w, h) {
+		var texture = new Texture();
+		texture.empty(type, w, h);
 		self.attach(texture);
 	}
 }
